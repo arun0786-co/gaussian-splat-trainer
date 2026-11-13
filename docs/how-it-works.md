@@ -79,8 +79,9 @@ From `dL/dalpha` the chain continues to the opacity, and through `G = exp(power)
 
 **Contention.** Every pixel of a tile adds into the same Gaussian's gradient, so done naively that is 256 threads doing atomic adds to one address. Here the 32 pixels of a simdgroup always look at the same Gaussian at the same moment, because they step through the shared batch together. The kernel therefore sums their 9 gradient values (centre xy, conic abc, opacity, colour rgb) with `simd_sum`. Lanes 0 to 8 then each do one atomic add: 9 atomics per simdgroup instead of 9 per pixel.
 
-**Three deliberate differences from the reference CUDA code:**
-- **The alpha clamp.** Where `opacity · G > 0.99`, alpha is clamped, so its true gradient is zero. The CUDA code passes the gradient through anyway; this code does not, which keeps the PyTorch reference and the kernel in exact agreement.
+**The alpha clamp.** Where `opacity · G > 0.99`, alpha is clamped, so the exact gradient is zero there. The reference CUDA code passes the gradient straight through instead, as if there were no clamp. Both are implemented (`--exact-clamp` picks the exact one), and the PyTorch reference matches the kernel in both modes. On Truck they gave the same test PSNR to within 0.1 dB at 1,000 and 2,000 steps, so the default follows the reference.
+
+**Two other differences from the reference code:**
 - **The off-diagonal conic entry.** It gets its full derivative. The CUDA code stores half of it and compensates later.
 - **Pixel centres** are at integer coordinates, and the projected centre includes the -0.5 that converts from COLMAP's convention.
 
@@ -119,8 +120,10 @@ The spherical-harmonics degree goes up by one every 1,000 steps.
 **Adaptive density control**, every 100 steps from step 500 to 15,000:
 - **Clone.** A Gaussian whose projected centre keeps getting large gradients (average above 0.0002 in normalised device coordinates) sits in a region the current set fits badly. If it is small (largest scale under 1% of the scene radius), it is cloned.
 - **Split.** If it is large, it is split into two Gaussians sampled from itself, each 1.6x smaller.
-- **Prune.** Gaussians with opacity under 0.005 are removed. After step 3,000, so are ones larger than 20 px on screen or 10% of the scene radius.
+- **Prune.** Gaussians with opacity under 0.005 are removed. After step 3,000, so are ones larger than 10% of the scene radius.
 - **Opacity reset.** Every 3,000 steps all opacities are pulled down to 0.01, so floaters must earn their opacity back.
+
+**A rule the paper has but its code does not.** The paper also prunes Gaussians larger than 20 px on screen, and the first version of this trainer did. In the reference code that test never fires: `densification_postfix()` sets `max_radii2D` to zero, and `densify_and_prune()` reads it right after (`scene/gaussian_model.py`, lines 407 and 462 in the version checked in November 2026). Applying the rule for real removes, every 100 steps, the large Gaussians that cover sky, road and shadows. On Truck, test PSNR at 5,000 steps was 19.30 dB with the rule and 22.93 dB without it. The README has the full comparison, and `--screen-prune` turns the rule back on.
 
 `torch.optim.Adam` cannot change the number of rows in its state, so `gaussians.Adam` is a small Adam over a dict of tensors. Densification rebuilds parameters and moments together, and the test checks that rows stay aligned.
 
