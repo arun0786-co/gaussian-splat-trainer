@@ -85,9 +85,16 @@ class Densifier:
     to 0.01 so that floaters have to earn their opacity back.
     """
 
-    def __init__(self, model: Gaussians, opt: Adam, extent, grad_thresh=0.0002, percent_dense=0.01):
+    def __init__(self, model: Gaussians, opt: Adam, extent, grad_thresh=0.0002, percent_dense=0.01,
+                 screen_prune=False):
         self.model, self.opt, self.extent = model, opt, extent
         self.grad_thresh, self.percent_dense = grad_thresh, percent_dense
+        # the paper also prunes Gaussians larger than 20 px on screen, but in
+        # the reference code that test never fires: densification_postfix()
+        # zeroes max_radii2D just before prune reads it. Doing it for real
+        # removes the large Gaussians that cover sky and ground every 100
+        # steps (see README for what it costs). Off by default.
+        self.screen_prune = screen_prune
         self.reset_stats()
 
     def reset_stats(self):
@@ -146,7 +153,9 @@ class Densifier:
         opacity = torch.sigmoid(p["opacity"])
         prune = split | (opacity < 0.005)
         if prune_big:
-            prune |= (self.max_radii > 20) | (max_scale > 0.1 * self.extent)
+            prune |= max_scale > 0.1 * self.extent
+            if self.screen_prune:
+                prune |= self.max_radii > 20
         keep = ~prune
         self._rebuild(keep, new)
         self.reset_stats()
