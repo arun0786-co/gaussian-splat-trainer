@@ -83,7 +83,7 @@ def train(args):
         train_time += time.perf_counter() - ts
 
         if step % 100 == 0 or step == 1:
-            rec = {"step": step, "loss": round(float(loss), 5), "gaussians": len(model),
+            rec = {"step": step, "loss": round(loss.item(), 5), "gaussians": len(model),
                    "train_s": round(train_time, 1)}
             if info:
                 rec["densify"] = info

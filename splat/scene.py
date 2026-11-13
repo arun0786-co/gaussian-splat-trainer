@@ -56,7 +56,7 @@ def load_scene(path, downscale=1, test_every=8, images_dir="images"):
                 im.name,
                 torch.tensor(qvec_to_rotmat(im.qvec), dtype=torch.float32),
                 torch.tensor(im.tvec, dtype=torch.float32),
-                fx * sx, fy * sy, cx * sx, cy * sy, w, h, img,
+                float(fx * sx), float(fy * sy), float(cx * sx), float(cy * sy), w, h, img,
             )
         )
     test = [c for i, c in enumerate(out) if test_every and i % test_every == 0]
