@@ -2,16 +2,25 @@ import torch
 import torch.nn.functional as F
 
 from .project import colors_from_sh, project
+from .project_metal import project_and_color
 from .raster import rasterize, rasterize_reference
 
 
 def render(model, cam, sh_degree=3, bg=None, reference=False):
     """Returns the image [3, h, w] and what training needs: the projected
-    means (for the densification gradient) and the radii."""
+    means (for the densification gradient) and the radii.
+
+    reference=True runs the PyTorch versions of every stage (autograd
+    gradients, dense rasterizer); otherwise the Metal kernels run."""
     p = model.params
     bg = bg if bg is not None else torch.zeros(3, device=p["means"].device)
-    means2d, conics, depths, radii = project(p["means"], p["log_scales"], p["quats"], cam)
-    colors = colors_from_sh(model.sh, p["means"], cam, sh_degree)
+    if reference:
+        means2d, conics, depths, radii = project(p["means"], p["log_scales"], p["quats"], cam)
+        colors = colors_from_sh(model.sh, p["means"], cam, sh_degree)
+    else:
+        means2d, conics, depths, radii, colors = project_and_color(
+            p["means"], p["log_scales"], p["quats"], model.sh, cam, sh_degree
+        )
     opac = torch.sigmoid(p["opacity"])
     fn = rasterize_reference if reference else rasterize
     img = fn(means2d, conics, colors, opac, depths, radii, cam.width, cam.height, bg)
