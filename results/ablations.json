@@ -1,0 +1,101 @@
+{
+ "scene": "tandt/truck",
+ "screen_space_prune": {
+  "note": "prune Gaussians > 20 px on screen every 100 steps after step 3000 (paper rule; inactive in the reference code)",
+  "off (default)": {
+   "2500": {
+    "psnr": 22.3375,
+    "ssim": 0.7962,
+    "views": 32,
+    "gaussians": 967819,
+    "train_s": 249.7
+   },
+   "5000": {
+    "psnr": 22.9252,
+    "ssim": 0.8254,
+    "views": 32,
+    "gaussians": 1643029,
+    "train_s": 654.4
+   },
+   "7000": {
+    "psnr": 23.2475,
+    "ssim": 0.8396,
+    "views": 32,
+    "gaussians": 1860358,
+    "train_s": 1076.0
+   }
+  },
+  "on (--screen-prune)": {
+   "2500": {
+    "psnr": 22.3655,
+    "ssim": 0.7959,
+    "views": 32,
+    "gaussians": 968013,
+    "train_s": 230.0
+   },
+   "5000": {
+    "psnr": 19.2982,
+    "ssim": 0.692,
+    "views": 32,
+    "gaussians": 1438933,
+    "train_s": 581.1
+   },
+   "7000": {
+    "psnr": 18.8671,
+    "ssim": 0.6974,
+    "views": 32,
+    "gaussians": 1692870,
+    "train_s": 897.8
+   }
+  }
+ },
+ "alpha_clamp_gradient": {
+  "note": "gradient where alpha = min(0.99, raw) is clamped: straight through (reference CUDA) or exact zero; 3000-step runs, eval at 3000 is right after an opacity reset",
+  "straight-through (default)": {
+   "1000": {
+    "psnr": 20.3756,
+    "ssim": 0.7169,
+    "views": 32,
+    "gaussians": 245755,
+    "train_s": 73.4
+   },
+   "2000": {
+    "psnr": 21.7556,
+    "ssim": 0.7765,
+    "views": 32,
+    "gaussians": 734927,
+    "train_s": 167.0
+   },
+   "3000": {
+    "psnr": 6.2698,
+    "ssim": 0.1977,
+    "views": 32,
+    "gaussians": 1179632,
+    "train_s": 322.9
+   }
+  },
+  "exact (--exact-clamp)": {
+   "1000": {
+    "psnr": 20.3658,
+    "ssim": 0.7168,
+    "views": 32,
+    "gaussians": 245627,
+    "train_s": 55.9
+   },
+   "2000": {
+    "psnr": 21.8352,
+    "ssim": 0.7773,
+    "views": 32,
+    "gaussians": 732904,
+    "train_s": 142.6
+   },
+   "3000": {
+    "psnr": 6.2433,
+    "ssim": 0.1963,
+    "views": 32,
+    "gaussians": 1178294,
+    "train_s": 294.9
+   }
+  }
+ }
+}
