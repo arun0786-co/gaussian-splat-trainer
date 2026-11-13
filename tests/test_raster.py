@@ -56,15 +56,16 @@ def test_forward_matches_reference(n, w, h):
 
 
 @mps
+@pytest.mark.parametrize("exact", [False, True])
 @pytest.mark.parametrize("n,w,h", [(300, 70, 45), (2000, 96, 64)])
-def test_backward_matches_reference(n, w, h):
+def test_backward_matches_reference(n, w, h, exact):
     means, conics, colors, opac, depths, radii = random_2d(n, w, h, seed=n + 7, device="mps")
     bg = torch.tensor([0.2, 0.5, 0.9], device="mps")
     target = torch.rand(3, h, w, device="mps", generator=torch.Generator(device="mps").manual_seed(0))
     grads = []
     for fn in (rasterize, rasterize_reference):
         p = [t.clone().requires_grad_() for t in (means, conics, colors, opac)]
-        img = fn(p[0], p[1], p[2], p[3], depths, radii, w, h, bg)
+        img = fn(p[0], p[1], p[2], p[3], depths, radii, w, h, bg, exact_clamp=exact)
         ((img - target) ** 2).sum().backward()
         grads.append([q.grad for q in p])
     for name, a, b in zip(["means", "conics", "colors", "opacities"], *grads):

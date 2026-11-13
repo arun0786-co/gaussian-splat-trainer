@@ -6,7 +6,7 @@ from .project_metal import project_and_color
 from .raster import rasterize, rasterize_reference
 
 
-def render(model, cam, sh_degree=3, bg=None, reference=False):
+def render(model, cam, sh_degree=3, bg=None, reference=False, exact_clamp=False):
     """Returns the image [3, h, w] and what training needs: the projected
     means (for the densification gradient) and the radii.
 
@@ -23,7 +23,7 @@ def render(model, cam, sh_degree=3, bg=None, reference=False):
         )
     opac = torch.sigmoid(p["opacity"])
     fn = rasterize_reference if reference else rasterize
-    img = fn(means2d, conics, colors, opac, depths, radii, cam.width, cam.height, bg)
+    img = fn(means2d, conics, colors, opac, depths, radii, cam.width, cam.height, bg, exact_clamp)
     return img, means2d, radii
 
 

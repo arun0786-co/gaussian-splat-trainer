@@ -32,7 +32,7 @@ def tile_rects(means2d, radii, width, height):
     return x0, x1, y0, y1
 
 
-def rasterize_reference(means2d, conics, colors, opacities, depths, radii, width, height, bg):
+def rasterize_reference(means2d, conics, colors, opacities, depths, radii, width, height, bg, exact_clamp=False):
     """Dense O(pixels x Gaussians) version, differentiable by autograd.
     Only for small images: tests and checks."""
     dev = means2d.device
@@ -45,7 +45,10 @@ def rasterize_reference(means2d, conics, colors, opacities, depths, radii, width
     dx = m[None, :, 0] - px[:, None].float()
     dy = m[None, :, 1] - py[:, None].float()
     power = -0.5 * (con[None, :, 0] * dx * dx + con[None, :, 2] * dy * dy) - con[None, :, 1] * dx * dy
-    alpha = (op[None, :] * torch.exp(power)).clamp(max=0.99)
+    raw = op[None, :] * torch.exp(power)
+    alpha = raw.clamp(max=0.99)
+    if not exact_clamp:  # clamped value forward, unclamped gradient backward
+        alpha = raw + (alpha - raw).detach()
     tx, ty = (px // TILE)[:, None], (py // TILE)[:, None]
     in_tile = (tx >= x0[None]) & (tx < x1[None]) & (ty >= y0[None]) & (ty < y1[None])
     valid = in_tile & (power <= 0) & (alpha >= 1.0 / 255.0)
@@ -202,6 +205,7 @@ kernel void render_backward(
     constant int& W [[buffer(13)]],
     constant int& H [[buffer(14)]],
     constant int& tiles_x [[buffer(15)]],
+    constant int& exact_clamp [[buffer(16)]],
     uint2 tile [[threadgroup_position_in_grid]],
     uint2 lid [[thread_position_in_threadgroup]],
     uint tid [[thread_index_in_threadgroup]],
@@ -260,15 +264,18 @@ kernel void render_backward(
                 float dL_dalpha = dot(c - accum, dL) * T;
                 last_alpha = alpha;
                 dL_dalpha += (-T_final / (1.0f - alpha)) * bg_dot;
-                // alpha is clamped at 0.99: no gradient flows through the clamp
-                const float dL_dG = raw > 0.99f ? 0.0f : co.w * dL_dalpha;
+                // alpha = min(0.99, raw). The exact derivative is 0 above
+                // the clamp; by default the gradient passes straight through,
+                // as in the reference CUDA rasterizer (see docs)
+                const bool cut = exact_clamp != 0 && raw > 0.99f;
+                const float dL_dG = cut ? 0.0f : co.w * dL_dalpha;
                 const float gdx = G * d.x, gdy = G * d.y;
                 gm[0] = dL_dG * (-gdx * co.x - gdy * co.y);
                 gm[1] = dL_dG * (-gdy * co.z - gdx * co.y);
                 gm[2] = -0.5f * gdx * d.x * dL_dG;
                 gm[3] = -gdx * d.y * dL_dG;
                 gm[4] = -0.5f * gdy * d.y * dL_dG;
-                gm[5] = raw > 0.99f ? 0.0f : G * dL_dalpha;
+                gm[5] = cut ? 0.0f : G * dL_dalpha;
                 gm[6] = gc.x; gm[7] = gc.y; gm[8] = gc.z;
             }
             if (!simd_any(active)) continue;
@@ -300,7 +307,7 @@ def _kernels():
 
 class _Rasterize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, means2d, conics, colors, opacities, ranges, point_list, width, height, bg):
+    def forward(ctx, means2d, conics, colors, opacities, ranges, point_list, width, height, bg, exact_clamp):
         lib = _kernels()
         tx, ty = -(-width // TILE), -(-height // TILE)
         means2d = means2d.contiguous()
@@ -315,6 +322,7 @@ class _Rasterize(torch.autograd.Function):
         )
         ctx.save_for_backward(ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib)
         ctx.size = (width, height)
+        ctx.exact_clamp = int(exact_clamp)
         return out
 
     @staticmethod
@@ -331,13 +339,15 @@ class _Rasterize(torch.autograd.Function):
         g_col = torch.zeros(n, 3, device=dev)
         lib.render_backward(
             ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib, dout.contiguous(),
-            g_means, g_conic, g_op, g_col, width, height, tx,
+            g_means, g_conic, g_op, g_col, width, height, tx, ctx.exact_clamp,
             threads=(tx * TILE, ty * TILE, 1), group_size=(TILE, TILE, 1),
         )
-        return g_means, g_conic, g_col, g_op, None, None, None, None, None
+        return g_means, g_conic, g_col, g_op, None, None, None, None, None, None
 
 
-def rasterize(means2d, conics, colors, opacities, depths, radii, width, height, bg):
+def rasterize(means2d, conics, colors, opacities, depths, radii, width, height, bg, exact_clamp=False):
     """Renders [3, h, w] with the Metal kernels."""
     ranges, point_list = bin_gaussians(means2d, depths, radii, width, height)
-    return _Rasterize.apply(means2d, conics, colors, opacities, ranges, point_list, width, height, bg.contiguous())
+    return _Rasterize.apply(
+        means2d, conics, colors, opacities, ranges, point_list, width, height, bg.contiguous(), exact_clamp
+    )
