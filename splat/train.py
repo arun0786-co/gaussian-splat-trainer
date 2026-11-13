@@ -48,7 +48,7 @@ def train(args):
     lrs = {"means": 1.6e-4 * extent, "sh_dc": 2.5e-3, "sh_rest": 2.5e-3 / 20, "opacity": 0.05,
            "log_scales": 5e-3, "quats": 1e-3}
     opt = Adam(model.params, lrs)
-    dens = Densifier(model, opt, extent)
+    dens = Densifier(model, opt, extent, screen_prune=args.screen_prune)
     bg = torch.zeros(3, device=dev)
     order = []
     log = {"args": vars(args), "steps": [], "evals": {}}
@@ -56,14 +56,14 @@ def train(args):
     train_time = 0.0
     for step in range(1, args.iters + 1):
         ts = time.perf_counter()
-        opt.lr["means"] = lr_log_linear(step, 1.6e-4 * extent, 1.6e-6 * extent, args.iters)
+        opt.lr["means"] = lr_log_linear(step, 1.6e-4 * extent, 1.6e-6 * extent, args.lr_steps)
         degree = min(3, step // 1000)
         if not order:
             order = list(range(len(train_cams)))
             random.shuffle(order)
         cam = train_cams[order.pop()]
 
-        img, means2d, radii = render(model, cam, degree, bg)
+        img, means2d, radii = render(model, cam, degree, bg, exact_clamp=args.exact_clamp)
         means2d.retain_grad()
         l1 = (img - cam.image).abs().mean()
         loss = 0.8 * l1 + 0.2 * (1 - ssim(img, cam.image))
@@ -81,7 +81,7 @@ def train(args):
                 # of odd-sized freed blocks grew past 20 GB
                 if dev == "mps":
                     torch.mps.empty_cache()
-            if step < args.densify_until and step % 3000 == 0:
+            if step < args.densify_until and step % 3000 == 0 and not args.no_opacity_reset:
                 dens.reset_opacity()
         if dev == "mps":
             torch.mps.synchronize()
@@ -117,10 +117,14 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--iters", type=int, default=30000)
     ap.add_argument("--densify-until", type=int, default=15000)
+    ap.add_argument("--lr-steps", type=int, default=30000, help="steps over which the position lr decays 100x")
     ap.add_argument("--downscale", type=float, default=1)
     ap.add_argument("--eval-at", type=int, nargs="*", default=[7000, 30000])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="mps")
+    ap.add_argument("--exact-clamp", action="store_true", help="zero gradient where alpha is clamped at 0.99")
+    ap.add_argument("--no-opacity-reset", action="store_true")
+    ap.add_argument("--screen-prune", action="store_true", help="also prune Gaussians over 20 px on screen")
     train(ap.parse_args())
 
 
