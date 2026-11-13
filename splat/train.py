@@ -76,6 +76,11 @@ def train(args):
             info = None
             if step < args.densify_until and step > 500 and step % 100 == 0:
                 info = dens.densify_and_prune(prune_big=step > 3000)
+                # tensor sizes change every step (the tile list) and every 100
+                # steps (the Gaussians); without this the mps allocator's cache
+                # of odd-sized freed blocks grew past 20 GB
+                if dev == "mps":
+                    torch.mps.empty_cache()
             if step < args.densify_until and step % 3000 == 0:
                 dens.reset_opacity()
         if dev == "mps":
@@ -87,6 +92,8 @@ def train(args):
                    "train_s": round(train_time, 1)}
             if info:
                 rec["densify"] = info
+            if dev == "mps":
+                rec["gpu_mem_gb"] = round(torch.mps.driver_allocated_memory() / 2**30, 2)
             log["steps"].append(rec)
             if step % 500 == 0 or step == 1:
                 print(rec, flush=True)
