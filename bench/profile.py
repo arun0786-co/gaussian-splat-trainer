@@ -14,6 +14,7 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from splat.device import default_device, sync  # noqa: E402
 from splat.ply import load_ply  # noqa: E402
 from splat.project import colors_from_sh, project  # noqa: E402
 from splat.project_metal import project_and_color  # noqa: E402
@@ -22,31 +23,34 @@ from splat.render import ssim  # noqa: E402
 from splat.scene import load_scene  # noqa: E402
 
 
-def sync():
-    torch.mps.synchronize()
+DEV = default_device()
+
+
+def now():
+    sync(DEV)
     return time.perf_counter()
 
 
 def timed(fn, n=10):
     for _ in range(2):
         fn()
-    t = sync()
+    t = now()
     for _ in range(n):
         fn()
-    return (sync() - t) / n * 1000
+    return (now() - t) / n * 1000
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", required=True)
     ap.add_argument("--ply", required=True)
-    ap.add_argument("--out", default="results/profile.json")
+    ap.add_argument("--out", default="results/profile.json" if DEV == "mps" else f"results/profile_{DEV}.json")
     a = ap.parse_args()
     train, *_ = load_scene(a.scene)
-    cam = train[0].to("mps")
-    m = load_ply(a.ply, "mps")
+    cam = train[0].to(DEV)
+    m = load_ply(a.ply, DEV)
     p = {k: v.requires_grad_() for k, v in m.params.items()}
-    bg = torch.zeros(3, device="mps")
+    bg = torch.zeros(3, device=DEV)
     W, H = cam.width, cam.height
 
     def proj_torch():
@@ -88,7 +92,7 @@ def main():
 
     rows["rasterize forward ms"] = timed(raster_fwd)
     rows["rasterize forward+backward ms"] = timed(raster_fwd_bwd)
-    img = torch.rand(3, H, W, device="mps", requires_grad=True)
+    img = torch.rand(3, H, W, device=DEV, requires_grad=True)
 
     def loss():
         l = 0.8 * (img - cam.image).abs().mean() + 0.2 * (1 - ssim(img, cam.image))

@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from .device import default_device
 from .ply import load_ply
 from .render import render
 from .scene import Camera, load_scene
@@ -71,7 +72,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--frames", type=int, default=240)
     ap.add_argument("--downscale", type=float, default=1)
-    ap.add_argument("--device", default="mps")
+    ap.add_argument("--device", default=default_device())
     a = ap.parse_args()
     train, test, *_ = load_scene(a.scene, a.downscale)
     cams = sorted(train + test, key=lambda c: c.name)

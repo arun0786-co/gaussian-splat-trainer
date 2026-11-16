@@ -18,6 +18,7 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from splat.device import default_device, sync  # noqa: E402
 from splat.ply import load_ply  # noqa: E402
 from splat.render import psnr, render, ssim  # noqa: E402
 from splat.scene import load_scene  # noqa: E402
@@ -28,7 +29,7 @@ def main():
     ap.add_argument("--scene", required=True)
     ap.add_argument("--ply", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--device", default="mps")
+    ap.add_argument("--device", default=default_device())
     ap.add_argument("--no-lpips", action="store_true")
     a = ap.parse_args()
     _, test, *_ = load_scene(a.scene)
@@ -44,10 +45,10 @@ def main():
         for cam in test:
             cam = cam.to(a.device)
             for _ in range(2):  # warm up, then time
-                torch.mps.synchronize()
+                sync(a.device)
                 t = time.perf_counter()
                 img = render(model, cam, 3)[0]
-                torch.mps.synchronize()
+                sync(a.device)
             times.append(time.perf_counter() - t)
             # the reference scores renders saved as 8-bit png; quantise the same way
             img = (img.clamp(0, 1) * 255).round() / 255

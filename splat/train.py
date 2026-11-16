@@ -11,6 +11,7 @@ import time
 
 import torch
 
+from .device import default_device, empty_cache, memory_gb, sync
 from .gaussians import Adam, Densifier, Gaussians, lr_log_linear
 from .ply import save_ply
 from .render import psnr, render, ssim
@@ -79,12 +80,10 @@ def train(args):
                 # tensor sizes change every step (the tile list) and every 100
                 # steps (the Gaussians); without this the mps allocator's cache
                 # of odd-sized freed blocks grew past 20 GB
-                if dev == "mps":
-                    torch.mps.empty_cache()
+                empty_cache(dev)
             if step < args.densify_until and step % 3000 == 0 and not args.no_opacity_reset:
                 dens.reset_opacity()
-        if dev == "mps":
-            torch.mps.synchronize()
+        sync(dev)
         train_time += time.perf_counter() - ts
 
         if step % 100 == 0 or step == 1:
@@ -92,8 +91,8 @@ def train(args):
                    "train_s": round(train_time, 1)}
             if info:
                 rec["densify"] = info
-            if dev == "mps":
-                rec["gpu_mem_gb"] = round(torch.mps.driver_allocated_memory() / 2**30, 2)
+            if dev != "cpu":
+                rec["gpu_mem_gb"] = round(memory_gb(dev), 2)
             log["steps"].append(rec)
             if step % 500 == 0 or step == 1:
                 print(rec, flush=True)
@@ -121,7 +120,7 @@ def main():
     ap.add_argument("--downscale", type=float, default=1)
     ap.add_argument("--eval-at", type=int, nargs="*", default=[7000, 30000])
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--device", default="mps")
+    ap.add_argument("--device", default=default_device())
     ap.add_argument("--exact-clamp", action="store_true", help="zero gradient where alpha is clamped at 0.99")
     ap.add_argument("--no-opacity-reset", action="store_true")
     ap.add_argument("--screen-prune", action="store_true", help="also prune Gaussians over 20 px on screen")
