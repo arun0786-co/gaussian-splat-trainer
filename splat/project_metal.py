@@ -20,6 +20,7 @@ Backward, per Gaussian, given dL/dmean2d, dL/dconic and dL/dcolour:
 
 import torch
 
+from . import cuda_kernels
 from .project import NEAR, SH_C0, SH_C1, SH_C2, SH_C3
 
 SOURCE = (
@@ -308,7 +309,6 @@ def cam_buffer(cam, degree):
 class _Project(torch.autograd.Function):
     @staticmethod
     def forward(ctx, means, log_scales, quats, sh, cambuf):
-        lib = _kernels()
         n = means.shape[0]
         dev = means.device
         means, log_scales, quats, sh = (x.contiguous() for x in (means, log_scales, quats, sh))
@@ -317,14 +317,17 @@ class _Project(torch.autograd.Function):
         depth = torch.empty(n, device=dev)
         radii = torch.empty(n, dtype=torch.int32, device=dev)
         col = torch.empty(n, 3, device=dev)
-        lib.project_forward(means, log_scales, quats, sh, cambuf, m2, con, depth, radii, col, n, threads=n)
+        args = (means, log_scales, quats, sh, cambuf, m2, con, depth, radii, col, n)
+        if means.is_cuda:
+            cuda_kernels.module().project_forward(*args)
+        else:
+            _kernels().project_forward(*args, threads=n)
         ctx.save_for_backward(means, log_scales, quats, sh, cambuf, radii)
         ctx.mark_non_differentiable(depth, radii)
         return m2, con, depth, radii, col
 
     @staticmethod
     def backward(ctx, g_m2, g_con, _gd, _gr, g_col):
-        lib = _kernels()
         means, log_scales, quats, sh, cambuf, radii = ctx.saved_tensors
         n = means.shape[0]
         g_means = torch.empty_like(means)
@@ -332,13 +335,17 @@ class _Project(torch.autograd.Function):
         g_q = torch.empty_like(quats)
         g_sh = torch.empty_like(sh)
         z = torch.zeros(n, 3, device=means.device)
-        lib.project_backward(
+        args = (
             means, log_scales, quats, sh, cambuf, radii,
             g_m2.contiguous() if g_m2 is not None else z[:, :2].contiguous(),
             g_con.contiguous() if g_con is not None else z,
             g_col.contiguous() if g_col is not None else z,
-            g_means, g_ls, g_q, g_sh, n, threads=n,
+            g_means, g_ls, g_q, g_sh, n,
         )
+        if means.is_cuda:
+            cuda_kernels.module().project_backward(*args)
+        else:
+            _kernels().project_backward(*args, threads=n)
         return g_means, g_ls, g_q, g_sh, None
 
 

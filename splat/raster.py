@@ -17,6 +17,8 @@ gradient.
 
 import torch
 
+from . import cuda_kernels
+
 TILE = 16
 
 
@@ -308,7 +310,6 @@ def _kernels():
 class _Rasterize(torch.autograd.Function):
     @staticmethod
     def forward(ctx, means2d, conics, colors, opacities, ranges, point_list, width, height, bg, exact_clamp):
-        lib = _kernels()
         tx, ty = -(-width // TILE), -(-height // TILE)
         means2d = means2d.contiguous()
         conic_op = torch.cat([conics, opacities[:, None]], dim=1).contiguous()
@@ -316,10 +317,11 @@ class _Rasterize(torch.autograd.Function):
         out = torch.empty(3, height, width, device=means2d.device)
         final_T = torch.empty(height, width, device=means2d.device)
         n_contrib = torch.empty(height, width, dtype=torch.int32, device=means2d.device)
-        lib.render_forward(
-            ranges, point_list, means2d, conic_op, colors, bg, out, final_T, n_contrib, width, height, tx,
-            threads=(tx * TILE, ty * TILE, 1), group_size=(TILE, TILE, 1),
-        )
+        args = (ranges, point_list, means2d, conic_op, colors, bg, out, final_T, n_contrib, width, height, tx)
+        if means2d.is_cuda:
+            cuda_kernels.module().render_forward(*args)
+        else:
+            _kernels().render_forward(*args, threads=(tx * TILE, ty * TILE, 1), group_size=(TILE, TILE, 1))
         ctx.save_for_backward(ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib)
         ctx.size = (width, height)
         ctx.exact_clamp = int(exact_clamp)
@@ -327,7 +329,6 @@ class _Rasterize(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
-        lib = _kernels()
         ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib = ctx.saved_tensors
         width, height = ctx.size
         tx, ty = -(-width // TILE), -(-height // TILE)
@@ -337,16 +338,18 @@ class _Rasterize(torch.autograd.Function):
         g_conic = torch.zeros(n, 3, device=dev)
         g_op = torch.zeros(n, device=dev)
         g_col = torch.zeros(n, 3, device=dev)
-        lib.render_backward(
-            ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib, dout.contiguous(),
-            g_means, g_conic, g_op, g_col, width, height, tx, ctx.exact_clamp,
-            threads=(tx * TILE, ty * TILE, 1), group_size=(TILE, TILE, 1),
-        )
+        args = (ranges, point_list, means2d, conic_op, colors, bg, final_T, n_contrib, dout.contiguous(),
+                g_means, g_conic, g_op, g_col, width, height, tx, ctx.exact_clamp)
+        if means2d.is_cuda:
+            cuda_kernels.module().render_backward(*args)
+        else:
+            _kernels().render_backward(*args, threads=(tx * TILE, ty * TILE, 1), group_size=(TILE, TILE, 1))
         return g_means, g_conic, g_col, g_op, None, None, None, None, None, None
 
 
 def rasterize(means2d, conics, colors, opacities, depths, radii, width, height, bg, exact_clamp=False):
-    """Renders [3, h, w] with the Metal kernels."""
+    """Renders [3, h, w] with the Metal kernels on Apple GPUs and the CUDA
+    ports (cuda_kernels.py) on NVIDIA GPUs."""
     ranges, point_list = bin_gaussians(means2d, depths, radii, width, height)
     return _Rasterize.apply(
         means2d, conics, colors, opacities, ranges, point_list, width, height, bg.contiguous(), exact_clamp
