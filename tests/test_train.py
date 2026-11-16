@@ -8,8 +8,8 @@ from splat.project import project
 from splat.render import psnr, render
 from splat.scene import Camera
 
-DEV = "mps" if torch.backends.mps.is_available() else "cpu"
-REF = DEV == "cpu"  # no apple gpu: use the dense reference rasterizer
+DEV = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+REF = DEV == "cpu"  # no gpu: use the dense reference rasterizer
 
 
 def cam_at(eye, target, f=60.0, size=64, device="cpu"):

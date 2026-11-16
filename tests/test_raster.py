@@ -6,7 +6,8 @@ import torch
 
 from splat.raster import TILE, bin_gaussians, rasterize, rasterize_reference, tile_rects
 
-mps = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an apple gpu")
+GPU = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else None)
+mps = pytest.mark.skipif(GPU is None, reason="needs an apple or nvidia gpu")
 
 
 def random_2d(n, width, height, seed=0, device="cpu"):
@@ -48,8 +49,8 @@ def test_binning_matches_brute_force():
 @mps
 @pytest.mark.parametrize("n,w,h", [(1, 16, 16), (300, 70, 45), (2000, 96, 64)])
 def test_forward_matches_reference(n, w, h):
-    args = random_2d(n, w, h, seed=n, device="mps")
-    bg = torch.tensor([0.2, 0.5, 0.9], device="mps")
+    args = random_2d(n, w, h, seed=n, device=GPU)
+    bg = torch.tensor([0.2, 0.5, 0.9], device=GPU)
     got = rasterize(*args, w, h, bg)
     ref = rasterize_reference(*args, w, h, bg)
     assert (got - ref).abs().max() < 1e-5
@@ -59,9 +60,9 @@ def test_forward_matches_reference(n, w, h):
 @pytest.mark.parametrize("exact", [False, True])
 @pytest.mark.parametrize("n,w,h", [(300, 70, 45), (2000, 96, 64)])
 def test_backward_matches_reference(n, w, h, exact):
-    means, conics, colors, opac, depths, radii = random_2d(n, w, h, seed=n + 7, device="mps")
-    bg = torch.tensor([0.2, 0.5, 0.9], device="mps")
-    target = torch.rand(3, h, w, device="mps", generator=torch.Generator(device="mps").manual_seed(0))
+    means, conics, colors, opac, depths, radii = random_2d(n, w, h, seed=n + 7, device=GPU)
+    bg = torch.tensor([0.2, 0.5, 0.9], device=GPU)
+    target = torch.rand(3, h, w, device=GPU, generator=torch.Generator(device=GPU).manual_seed(0))
     grads = []
     for fn in (rasterize, rasterize_reference):
         p = [t.clone().requires_grad_() for t in (means, conics, colors, opac)]

@@ -9,7 +9,8 @@ import torch
 from splat.project import colors_from_sh, project
 from splat.scene import Camera
 
-pytestmark = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an apple gpu")
+GPU = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else None)
+pytestmark = pytest.mark.skipif(GPU is None, reason="needs an apple or nvidia gpu")
 
 
 def setup(n, seed, degree):
@@ -21,7 +22,7 @@ def setup(n, seed, degree):
     ang = 0.3
     R = torch.tensor([[math.cos(ang), 0, math.sin(ang)], [0, 1, 0], [-math.sin(ang), 0, math.cos(ang)]])
     cam = Camera("c", R, torch.tensor([0.2, -0.1, 0.5]), 300.0, 280.0, 160.0, 120.0, 320, 240)
-    dev = "mps"
+    dev = GPU
     return [x.to(dev) for x in (means, log_scales, quats, sh)], cam.to(dev)
 
 
@@ -40,11 +41,11 @@ def test_matches_reference_and_autograd(degree):
             col = colors_from_sh(p[3], p[0], cam, degree)
         outs.append((m2, con, depth, radii, col))
         # upstream gradients as the rasterizer would give them: zero for culled
-        g = torch.Generator(device="mps").manual_seed(1)
+        g = torch.Generator(device=GPU).manual_seed(1)
         vis = (radii > 0).float()[:, None]
-        loss = ((m2 * torch.randn(m2.shape, device="mps", generator=g) * vis).sum()
-                + (con * torch.randn(con.shape, device="mps", generator=g) * vis).sum()
-                + (col * torch.randn(col.shape, device="mps", generator=g)).sum())
+        loss = ((m2 * torch.randn(m2.shape, device=GPU, generator=g) * vis).sum()
+                + (con * torch.randn(con.shape, device=GPU, generator=g) * vis).sum()
+                + (col * torch.randn(col.shape, device=GPU, generator=g)).sum())
         loss.backward()
         grads.append([x.grad for x in p])
     (m2a, ca, da, ra, cola), (m2b, cb, db, rb, colb) = outs
