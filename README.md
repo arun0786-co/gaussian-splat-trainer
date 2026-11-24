@@ -40,7 +40,7 @@ The protocol is the paper's:
 
 The 7k comparison has no LPIPS for this trainer because that checkpoint was not kept.
 
-### Where the time goes (`bench/profile.py`, `results/profile.json`)
+### Where the time goes (`bench/step_profile.py`, `results/profile.json`)
 
 One training step on the final 2.57M-Gaussian model, 979x546:
 

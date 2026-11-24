@@ -1,7 +1,8 @@
-"""Time per training-step stage on a trained scene, Metal kernels against
-the PyTorch versions of projection.
+"""Time per training-step stage on a trained scene, the GPU kernels against
+the PyTorch versions of projection. (Not named profile.py: in bench/ that
+name hides the standard library module, which torch imports.)
 
-    python bench/profile.py --scene data/tandt/truck --ply output/truck/point_cloud.ply
+    python bench/step_profile.py --scene data/tandt/truck --ply output/truck/point_cloud.ply
 """
 
 import argparse
@@ -77,7 +78,7 @@ def main():
         "gaussians": len(m),
         "tile overlaps": int(plist.numel()),
         "projection + SH, PyTorch, fwd+bwd ms": timed(fwd_bwd(proj_torch)),
-        "projection + SH, Metal, fwd+bwd ms": timed(fwd_bwd(proj_metal)),
+        f"projection + SH, {'Metal' if DEV == 'mps' else 'CUDA'}, fwd+bwd ms": timed(fwd_bwd(proj_metal)),
         "binning (sort) ms": timed(lambda: bin_gaussians(m2, d, r, W, H)),
     }
     leaves = [x.clone().requires_grad_() for x in (m2, con, col, op)]
