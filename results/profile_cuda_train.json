@@ -1,0 +1,11 @@
+{
+ "gaussians": 1100335,
+ "tile overlaps": 4418691,
+ "projection + SH, PyTorch, fwd+bwd ms": 356.3,
+ "projection + SH, CUDA, fwd+bwd ms": 17.7,
+ "binning (sort) ms": 10.6,
+ "rasterize forward ms": 8.7,
+ "rasterize forward+backward ms": 31.3,
+ "loss (L1 + SSIM) fwd+bwd ms": 15.8,
+ "resolution": "980x545"
+}
