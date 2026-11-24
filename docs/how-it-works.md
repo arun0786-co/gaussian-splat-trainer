@@ -127,7 +127,26 @@ The spherical-harmonics degree goes up by one every 1,000 steps.
 
 `torch.optim.Adam` cannot change the number of rows in its state, so `gaussians.Adam` is a small Adam over a dict of tensors. Densification rebuilds parameters and moments together, and the test checks that rows stay aligned.
 
-## 7. How it is tested
+## 7. The CUDA port (`cuda_kernels.py`, `device.py`)
+
+The four kernels were written for Metal first and ported to CUDA without changing their design:
+
+| Metal | CUDA |
+|---|---|
+| threadgroup of 16 x 16 threads per tile | block of 16 x 16 threads per tile |
+| `simd_sum` over a 32-lane simdgroup | a `__shfl_xor_sync` butterfly over a 32-lane warp |
+| a threadgroup atomic counter: the tile stops when all its pixels are done | `__syncthreads_count` |
+| `simd_any`: skip a Gaussian that no pixel of the simdgroup touches (backward) | `__any_sync` |
+| `threadgroup` memory for the shared batch of Gaussians | `__shared__` memory |
+| compiled by `torch.mps.compile_shader` | compiled by `torch.utils.cpp_extension.load_inline` (nvcc) |
+
+The camera goes to the projection kernels as a small float tensor rather than a struct argument, and the kernels read it into a struct. `raster.py` and `project_metal.py` pick the CUDA or Metal launcher by the tensor's device. `device.py` holds the calls that differ: synchronising, emptying the allocator cache, and reading the memory in use.
+
+The same 16 tests check both versions against the PyTorch reference, values and gradients. The CUDA kernels were written on the Mac, without an NVIDIA GPU, and all 16 tests passed on their first run on a T4. Training then matched the Metal run: Truck 25.35 dB against 25.42, SSIM 0.882 against 0.882.
+
+The first attempts to run them were on a university cluster. The jobs spent their whole time limit installing PyTorch over the compute nodes' slow network, and then the login node stopped answering. They moved to Kaggle's T4s, where PyTorch comes preinstalled.
+
+## 8. How it is tested
 
 Every hand-written GPU kernel has a PyTorch twin, and the tests compare values and gradients:
 
