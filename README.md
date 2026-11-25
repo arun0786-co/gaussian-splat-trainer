@@ -40,11 +40,23 @@ The protocol is the paper's:
 - training is at the dataset's 979x546 resolution;
 - renders are scored as 8-bit images.
 
+![three held-out Truck views: ground truth and render](docs/images/truck_test_views.jpg)
+
+*Three of the 32 held-out Truck views after 30k steps on the M4 Pro. Saved by the evaluation in `output/truck/renders_30000/`; per-view scores from `results/truck_30k.json`.*
+
 **LPIPS is reported twice:**
 - **0.147 for Truck:** VGG LPIPS with [0, 1] inputs, which is how the paper's evaluation script computes it. Its `metrics.py` loads images with `to_tensor` and passes them straight to an LPIPS network that expects [-1, 1]. The tables above use this convention.
 - **0.178 for Truck (0.245 for Train):** with inputs scaled to [-1, 1], as the `lpips` package documents. Other papers' LPIPS numbers are not always comparable with the paper's for this reason.
 
 The 7k comparison has no LPIPS for this trainer because that checkpoint was not kept.
+
+![one held-out view at 7k, 15k and 30k steps](docs/images/truck_progress.jpg)
+
+*Held-out view 000017, cropped to the cab, at each evaluation of the M4 Pro run. The PSNR in each label is the mean over all 32 test views, from `results/truck_train_log.json`.*
+
+![loss, Gaussian count and test PSNR during training](docs/images/training_curves.png)
+
+*Training logs of the three 30k-step runs (`results/truck_train_log.json`, `results/truck_train_log_cuda.json`, `results/train_train_log_cuda.json`). The two Truck runs grow almost the same number of Gaussians, so their lines overlap. No Train renders are shown because that run's outputs stayed on Kaggle.*
 
 ### Where the time goes (`bench/step_profile.py`, `results/profile.json`, `results/profile_cuda_truck.json`)
 
@@ -58,6 +70,10 @@ One training step on the final Truck model (2.57M Gaussians, 4.4M tile overlaps)
 | rasterize forward | 14.6 | 13.5 |
 | rasterize forward + backward | 56.3 | 46.4 |
 | loss, L1 + SSIM, forward + backward | 28.1 | 16.3 |
+
+![time per stage of one training step on the M4 Pro and the T4](docs/images/step_profile.png)
+
+*The table above as a chart, log scale, from `results/profile.json` and `results/profile_cuda_truck.json`.*
 
 **The projection kernel takes as long on the T4 as on the M4 Pro.** That stands out, since the T4 is faster at every other stage. I have not profiled it. The likely cause is memory access: the kernel runs one thread per Gaussian, and each thread reads its 48 SH coefficients from a row 192 bytes away from its neighbour's, so a warp's loads are poorly coalesced. A structure-of-arrays layout, or a warp per few Gaussians, would be the next thing to try.
 
@@ -76,6 +92,10 @@ The first full run scored 19.35 dB at 7k steps, 4 dB below the paper, and got wo
 |---|---|---|---|
 | screen-space pruning off (default, like the reference code) | 22.34 | 22.93 | 23.25 |
 | screen-space pruning on (`--screen-prune`, like the paper's text) | 22.37 | 19.30 | 18.87 |
+
+![the same view at 7k steps with screen-space pruning off and on](docs/images/screen_prune.jpg)
+
+*Held-out view 000017 at step 7,000 from the two ablation runs (`output/p_default`, `output/p_screen`). With pruning on, the road and the truck's side lose the large Gaussians that covered them.*
 
 **2. Not a bug: the gradient through the alpha clamp.** Alpha is `min(0.99, opacity · G)`.
 - The first kernel used the exact derivative, which is zero above the clamp. The reference CUDA code passes the gradient straight through.
